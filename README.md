@@ -17,3 +17,6 @@ Uncommend the `env.render()` line to see the game while training, however this i
 This is meant to be a very simple implementation, to be used as a started code. I aimed it to be easy-to-comprehend rather than feature-complete.
 
 Pull requests welcome!
+
+# References
+- https://www.cs.toronto.edu/~vmnih/docs/dqn.pdf
