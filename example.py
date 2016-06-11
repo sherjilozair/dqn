@@ -1,6 +1,14 @@
+from __future__ import print_function
+
 import sys
 import gym
 from dqn import Agent
+
+# Python 3 compatability
+try:
+    xrange
+except NameError:
+    xrange = range
 
 num_episodes = 20
 
@@ -26,5 +34,5 @@ for e in xrange(num_episodes):
         observation, reward, done, info = env.step(action)
         total_cost += agent.observe(reward)
         total_reward += reward
-    print "total reward", total_reward
-    print "mean cost", total_cost/frame
+    print("total reward", total_reward)
+    print("mean cost", total_cost/frame)

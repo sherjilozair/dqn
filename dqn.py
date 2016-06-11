@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import random
 import numpy
 from keras.models import Model
@@ -6,6 +8,12 @@ from keras.optimizers import RMSprop
 from keras import backend as K
 from theano import printing
 from theano.gradient import disconnected_grad
+
+# Python 3 compatability
+try:
+    xrange
+except NameError:
+    xrange = range
 
 class Agent:
     def __init__(self, state_size=None, number_of_actions=1,
@@ -38,9 +46,9 @@ class Agent:
         self.model = Model(S, V)
         try:
             self.model.load_weights('{}.h5'.format(self.save_name))
-            print "loading from {}.h5".format(self.save_name)
+            print("loading from {}.h5".format(self.save_name))
         except:
-            print "Training a new model"
+            print("Training a new model")
 
 
     def build_functions(self):
@@ -110,22 +118,3 @@ class Agent:
             R[i] = self.rewards[episode][frame]
         cost = self.train_fn([S, NS, A, R, T])
         return cost
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
