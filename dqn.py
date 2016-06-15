@@ -1,10 +1,9 @@
 import random
 import numpy
 from keras.models import Model
-from keras.layers import Convolution2D, Dense, Flatten, Input, merge
+from keras.layers import Convolution2D, Dense, Flatten, Input
 from keras.optimizers import RMSprop
 from keras import backend as K
-from theano import printing
 from theano.gradient import disconnected_grad
 
 class Agent:
@@ -29,9 +28,11 @@ class Agent:
     def build_model(self):
         S = Input(shape=self.state_size)
         h = Convolution2D(16, 8, 8, subsample=(4, 4),
-            border_mode='same', activation='relu')(S)
+            border_mode='same', activation='relu',
+            dim_ordering='tf')(S)
         h = Convolution2D(32, 4, 4, subsample=(2, 2),
-            border_mode='same', activation='relu')(h)
+            border_mode='same', activation='relu',
+            dim_ordering='tf')(h)
         h = Flatten()(h)
         h = Dense(256, activation='relu')(h)
         V = Dense(self.number_of_actions)(h)
@@ -110,22 +111,3 @@ class Agent:
             R[i] = self.rewards[episode][frame]
         cost = self.train_fn([S, NS, A, R, T])
         return cost
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
