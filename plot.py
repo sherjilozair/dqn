@@ -10,7 +10,7 @@ def get_job_name(jobid):
 
 jobids = sys.argv[2:]
 exp_name = [get_job_name(jobid) for jobid in jobids]
-exp_data = [np.load("{}/returns_{}.npy".format(jobid, jobid)) for jobid in jobids]
+exp_data = [np.load("{}/{}.npy".format(jobid, jobid)) for jobid in jobids]
 
 N = int(sys.argv[1])
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-source activate dqn
+source activate tfgpu
 python dqn.py $@ --jobid=$SLURM_JOB_ID
 
     

@@ -8,12 +8,11 @@ parser = argparse.ArgumentParser(
     description="Train a DQN net for Atari games.")
 
 # Important hparams
-parser.add_argument("-g", "--game", type=str, default="Pong", help="total number of training steps")
-parser.add_argument("-n", "--number-steps", type=int, default=10000000, help="total number of training steps")
-parser.add_argument("-e", "--explore-steps", type=int, default=1000000, help="total number of explorartion steps")
+parser.add_argument("-g", "--game", type=str, default="Pong")
+parser.add_argument("-n", "--number-steps", type=int, default=1000000, help="total number of training steps")
+parser.add_argument("-e", "--explore-steps", type=int, default=100000, help="total number of explorartion steps")
 parser.add_argument("-c", "--copy-steps", type=int, default=4096, help="number of training steps between copies of online DQN to target DQN")
 parser.add_argument("-l", "--learn-freq", type=int, default=4, help="number of game steps between each training step")
-parser.add_argument("-a", "--averager", type=bool, default=False, help="whethet to use an averager function approximator")
 
 # Irrelevant hparams
 parser.add_argument("-s", "--save-steps", type=int, default=10000, help="number of training steps between saving checkpoints")
@@ -29,7 +28,6 @@ import gym
 import numpy as np
 import os
 import tensorflow as tf
-from util import  wrap_dqn
 import sys
 import matplotlib
 matplotlib.use('Agg')
@@ -37,56 +35,23 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
 
-import shutil
-if not os.path.exists(args.jobid):
-  os.makedirs(args.jobid)
-shutil.copy(__file__, os.path.join(args.jobid, "code.py"))
+from util import wrap_dqn
 
 env = wrap_dqn(gym.make("{}NoFrameskip-v4".format(args.game)))
-done = True  # env needs to be reset
 
-# First let's build the two DQNs (online & target)
-input_height = 84
-input_width = 84
-input_channels = 4
-conv_n_maps = [32, 64, 64]
-conv_kernel_sizes = [(8,8), (4,4), (3,3)]
-conv_strides = [4, 2, 1]
-conv_paddings = ["SAME"] * 3 
-conv_activation = [tf.nn.relu] * 3
-n_hidden_in = 64 * 11 * 11  # conv3 has 64 maps of 11x10 each
-n_hidden = 256
-hidden_activation = tf.nn.relu
-n_outputs = env.action_space.n  # 9 discrete actions are available
-initializer = tf.contrib.layers.variance_scaling_initializer()
-
-def q_network(X_state, name, reuse=False, averager=False):
-    prev_layer = X_state
+def q_network(net, name, reuse=False):
     with tf.variable_scope(name, reuse=reuse) as scope:
+        initializer = tf.contrib.layers.variance_scaling_initializer()
         for n_maps, kernel_size, strides, padding, activation in zip(
-                conv_n_maps, conv_kernel_sizes, conv_strides,
-                conv_paddings, conv_activation):
-            prev_layer = tf.layers.conv2d(
-                prev_layer, filters=n_maps, kernel_size=kernel_size,
-                strides=strides, padding=padding, activation=activation,
-                kernel_initializer=initializer)
-        last_conv_layer_flat = tf.reshape(prev_layer, shape=[-1, n_hidden_in])
-        hidden = tf.layers.dense(last_conv_layer_flat, n_hidden,
-                                 activation=hidden_activation,
-                                 kernel_initializer=initializer)
-        if averager:
-            N = 51
-            print ("using averager with N={}".format(N))
-            logits = tf.layers.dense(hidden, n_outputs * N, activation=tf.nn.relu, kernel_initializer=initializer)
-            logits = tf.reshape(logits, [-1, n_outputs, N])
-            #p = tf.nn.softmax(logits, dim=2)
-            v = tf.range(-(N//2), N//2+1, dtype=tf.float32)
-            outputs = tf.reduce_sum(logits * v, axis=2) / tf.reduce_sum(logits, axis=2)
-        else:
-            outputs = tf.layers.dense(hidden, n_outputs, kernel_initializer=initializer)
+                [32, 64, 64], [(8,8), (4,4), (3,3)], [4, 2, 1],
+                ["SAME"] * 3 , [tf.nn.relu] * 3):
+            net = tf.layers.conv2d(net, filters=n_maps, kernel_size=kernel_size, strides=strides, 
+                padding=padding, activation=activation, kernel_initializer=initializer)
+        net = tf.layers.dense(tf.contrib.layers.flatten(net), 256, activation=tf.nn.relu, kernel_initializer=initializer)
+        net = tf.layers.dense(net, env.action_space.n, kernel_initializer=initializer)
 
     trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope.name)
-    return outputs, trainable_vars
+    return net, trainable_vars
 
 # Now for the training operations
 learning_rate = 1e-4
@@ -95,18 +60,17 @@ discount_rate = 0.99
 batch_size = 64
 
 with tf.variable_scope("train"):
-    X_state = tf.placeholder(tf.float32, shape=[None, input_height, input_width, input_channels])
-    X_next_state = tf.placeholder(tf.float32, shape=[None, input_height, input_width, input_channels])
+    X_state = tf.placeholder(tf.float32, shape=[None, 84, 84, 4])
+    X_next_state = tf.placeholder(tf.float32, shape=[None, 84, 84, 4])
     X_action = tf.placeholder(tf.int32, shape=[None])
     X_done = tf.placeholder(tf.float32, shape=[None])
     X_rewards = tf.placeholder(tf.float32, shape=[None])
-    online_q_values, online_vars = q_network(X_state, name="q_networks/online", averager=args.averager)
-    target_q_values, target_vars = q_network(X_next_state, name="q_networks/online", reuse=True, averager=args.averager)
+    online_q_values, online_vars = q_network(X_state, name="q_networks/online")
+    target_q_values, target_vars = q_network(X_next_state, name="q_networks/online", reuse=True)
     max_target_q_values = tf.reduce_max(target_q_values, axis=1)
     target = X_rewards + (1. - X_done) * discount_rate * max_target_q_values
-
-    q_value = tf.reduce_sum(online_q_values * tf.one_hot(X_action, n_outputs), axis=1)
-    error = tf.abs(q_value - (tf.stop_gradient if True else lambda x: x)(target))
+    q_value = tf.reduce_sum(online_q_values * tf.one_hot(X_action, env.action_space.n), axis=1)
+    error = tf.abs(q_value - tf.stop_gradient(target))
     clipped_error = tf.clip_by_value(error, 0.0, 1.0)
     linear_error = 2 * (error - clipped_error)
     loss = tf.reduce_mean(tf.square(clipped_error) + linear_error)
@@ -124,8 +88,7 @@ init = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
 # Let's implement a simple replay memory
-replay_memory_size = 10000
-replay_memory = deque([], maxlen=replay_memory_size)
+replay_memory = deque([], maxlen=10000)
 
 def sample_memories(batch_size):
     indices = np.random.permutation(len(replay_memory))[:batch_size]
@@ -144,7 +107,7 @@ eps_max = 1.0 if not args.test else eps_min
 def epsilon_greedy(q_values, step):
     epsilon = max(eps_min, eps_max - (eps_max-eps_min) * step / args.explore_steps)
     if np.random.rand() < epsilon:
-        return np.random.randint(n_outputs) # random action
+        return np.random.randint(env.action_space.n) # random action
     else:
         return np.argmax(q_values) # optimal action
 
@@ -155,7 +118,7 @@ loss_val = np.infty
 game_length = 0
 total_max_q = 0
 mean_max_q = 0.0
-returnn = return_display = 0.0
+returnn = 0.0
 returns = []
 steps = []
 path = os.path.join(args.jobid, "model")
@@ -172,7 +135,7 @@ with tf.Session() as sess:
                 print("Step {}/{} ({:.1f})% Training iters {}   "
                       "Loss {:5f}    Mean Max-Q {:5f}   Return: {:5f}".format(
                 step, args.number_steps, step * 100 / args.number_steps,
-                training_iter, loss_val, mean_max_q, return_display))
+                training_iter, loss_val, mean_max_q, returnn))
                 sys.stdout.flush()
             state = env.reset()
         if args.render:
@@ -197,9 +160,8 @@ with tf.Session() as sess:
         total_max_q += q_values.max()
         game_length += 1
         if done:
-            return_display = returnn
             steps.append(step)
-            returns.append(return_display)
+            returns.append(returnn)
             returnn = 0.
             mean_max_q = total_max_q / game_length
             total_max_q = 0.0
@@ -225,6 +187,5 @@ with tf.Session() as sess:
         # And save regularly
         if step % args.save_steps == 0:
             saver.save(sess, path)
-            np.save(os.path.join(args.jobid, "returns_{}.npy".format(args.jobid)), np.array(returns))  # deprecated
             np.save(os.path.join(args.jobid, "{}.npy".format(args.jobid)), np.array((steps, returns)))
 
